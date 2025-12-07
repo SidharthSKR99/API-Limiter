@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # 1. The Database
+  redis:
+    image: redis:latest
+    container_name: redis-rate-limiter
+    ports:
+      - "6379:6379"
+    networks:
+      - api-network
+
+  # 2. Your Java Backend
+  app:
+    build: .
+    container_name: api-limiter-app
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+    depends_on:
+      - redis
+    networks:
+      - api-network
+
+networks:
+  api-network:
+    driver: bridge
