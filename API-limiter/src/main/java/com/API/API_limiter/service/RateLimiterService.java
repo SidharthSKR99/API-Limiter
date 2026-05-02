@@ -17,7 +17,9 @@ public class RateLimiterService {
     @Autowired
     private DefaultRedisScript<List> redisScript;
 
-    public boolean isAllowed(String apiKey, int replenishRate, int burstCapacity) {
+    public record RateLimitResult(boolean allowed, long tokensRemaining) {}
+
+    public RateLimitResult isAllowed(String apiKey, int replenishRate, int burstCapacity) {
         List<String> keys = Arrays.asList(apiKey);
 
         // Execute the Lua script
@@ -29,11 +31,12 @@ public class RateLimiterService {
                 "1" // Requesting 1 token
         );
 
-        // Result[0] is 1 if allowed, 0 if denied
-        if (result != null && !result.isEmpty()) {
+        // Result[0] is 1 if allowed, 0 if denied, Result[1] is tokens remaining
+        if (result != null && result.size() >= 2) {
             Long allowed = (Long) result.get(0);
-            return allowed == 1L;
+            Long remaining = (Long) result.get(1);
+            return new RateLimitResult(allowed == 1L, remaining);
         }
-        return false;
+        return new RateLimitResult(false, 0);
     }
 }

@@ -17,26 +17,27 @@ public class DashboardController {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
-    // Hardcoded keys for MVP visualization
-    private final String FREE_KEY = "free_key_123";
-    private final String GOLD_KEY = "gold_key_456";
+    @Autowired
+    private com.API.API_limiter.repository.UserRepository userRepository;
 
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getDashboardStats() {
+    public ResponseEntity<Map<String, Object>> getDashboardStats(java.security.Principal principal) {
+        String username = principal.getName();
+        var user = userRepository.findByUsername(username).orElseThrow();
+
         Map<String, Object> stats = new HashMap<>();
+        stats.put("username", user.getUsername());
+        stats.put("plan", user.getPlan());
+        stats.put("api_key", user.getApiKey());
 
-        // 1. Fetch current tokens from Redis
-        // Keys: "{api_key}:tokens"
-        String freeTokensStr = redisTemplate.opsForValue().get(FREE_KEY + ":tokens");
-        String goldTokensStr = redisTemplate.opsForValue().get(GOLD_KEY + ":tokens");
+        String redisKey = user.getApiKey() + ":tokens";
+        String tokensStr = redisTemplate.opsForValue().get(redisKey);
 
-        // 2. Parse and Handle nulls
-        // If null, it means the bucket hasn't been blocked/created yet, so it's full.
-        stats.put("free_plan_limit", 10);
-        stats.put("free_plan_remaining", freeTokensStr != null ? Double.parseDouble(freeTokensStr) : 10);
+        double limit = (user.getPlan() == com.API.API_limiter.model.UserEntity.PlanType.FREE) ? 10.0 : 50.0;
+        double remaining = tokensStr != null ? Double.parseDouble(tokensStr) : limit;
 
-        stats.put("gold_plan_limit", 50);
-        stats.put("gold_plan_remaining", goldTokensStr != null ? Double.parseDouble(goldTokensStr) : 50);
+        stats.put("limit", limit);
+        stats.put("remaining", remaining);
 
         return ResponseEntity.ok(stats);
     }

@@ -16,6 +16,6 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(rateLimitInterceptor)
                 .addPathPatterns("/api/**") // Apply only to API endpoints
-                .excludePathPatterns("/api/admin/**"); // Exclude dashboard
+                .excludePathPatterns("/api/admin/**", "/api/auth/**"); // Exclude dashboard and auth
     }
 }

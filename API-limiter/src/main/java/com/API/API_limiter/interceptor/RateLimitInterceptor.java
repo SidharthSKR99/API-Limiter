@@ -14,9 +14,8 @@ public class RateLimitInterceptor implements HandlerInterceptor {
     @Autowired
     private RateLimiterService rateLimiterService;
 
-    // Hardcoded simple "Database" of keys for Phase 2
-    private static final String FREE_KEY = "free_key_123";
-    private static final String GOLD_KEY = "gold_key_456";
+    @Autowired
+    private com.API.API_limiter.service.ApiKeyCacheService apiKeyCacheService;
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
@@ -27,32 +26,46 @@ public class RateLimitInterceptor implements HandlerInterceptor {
 
         if (apiKey == null || apiKey.isEmpty()) {
             response.setStatus(HttpStatus.BAD_REQUEST.value());
-            response.getWriter().write("Missing Header: X-API-KEY");
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\": \"Missing Header: X-API-KEY\", \"status\": 400}");
             return false;
         }
 
-        // 2. Determine Plan Limits based on the key
-        int limit = 0;
-        int refillRate = 1; // Default refill
-
-        if (FREE_KEY.equals(apiKey)) {
-            limit = 10; // 10 requests max capacity
-            refillRate = 1; // 1 token per second
-        } else if (GOLD_KEY.equals(apiKey)) {
-            limit = 50; // 50 requests max capacity
-            refillRate = 5; // 5 tokens per second
-        } else {
+        // 2. Fetch User Plan from Cache/DB
+        var plan = apiKeyCacheService.getPlanForApiKey(apiKey);
+        if (plan == null) {
             response.setStatus(HttpStatus.UNAUTHORIZED.value());
-            response.getWriter().write("Invalid API Key");
+            response.setContentType("application/json");
+            response.getWriter().write("{\"error\": \"Invalid API Key\", \"status\": 401}");
             return false;
         }
 
-        // 3. Call the Redis Engine (Phase 1 code)
-        boolean allowed = rateLimiterService.isAllowed(apiKey, refillRate, limit);
+        int limit = 0;
+        int refillRate = 1;
 
-        if (!allowed) {
+        if (plan == com.API.API_limiter.model.UserEntity.PlanType.FREE) {
+            limit = 10;
+            refillRate = 1;
+        } else if (plan == com.API.API_limiter.model.UserEntity.PlanType.GOLD) {
+            limit = 50;
+            refillRate = 5;
+        }
+
+        // 3. Call the Redis Engine
+        var result = rateLimiterService.isAllowed(apiKey, refillRate, limit);
+
+        // Always set rate limit headers
+        response.setHeader("X-RateLimit-Limit", String.valueOf(limit));
+        response.setHeader("X-RateLimit-Remaining", String.valueOf(result.tokensRemaining()));
+        response.setHeader("X-RateLimit-Policy", plan.name());
+
+        if (!result.allowed()) {
             response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value()); // 429 Error
-            response.getWriter().write("Rate limit exceeded. Upgrade to Gold Plan!");
+            response.setContentType("application/json");
+            response.getWriter().write(String.format(
+                "{\"error\": \"Rate limit exceeded\", \"plan\": \"%s\", \"retry_after_seconds\": %d, \"status\": 429}",
+                plan.name(), (limit / refillRate)
+            ));
             return false;
         }
 

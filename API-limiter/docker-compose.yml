@@ -24,6 +24,17 @@ services:
     networks:
       - api-network
 
+  # 3. React Frontend
+  frontend:
+    build: ../frontend
+    container_name: api-limiter-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - app
+    networks:
+      - api-network
+
 networks:
   api-network:
     driver: bridge
