@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate, Link } from 'react-router-dom';
 import { Lock, User, Crown } from 'lucide-react';
 
@@ -13,14 +13,14 @@ function RegisterPage() {
     const handleRegister = async (e) => {
         e.preventDefault();
         try {
-            await axios.post('http://localhost:8080/api/auth/register', {
+            await api.post('/auth/register', {
                 username,
                 password,
                 plan
             });
             navigate('/login');
         } catch (err) {
-            setError(err.response?.data || 'Registration failed');
+            setError(err.response?.data?.error || 'Registration failed');
         }
     };
 

@@ -1,44 +1,49 @@
 package com.API.API_limiter.controller;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
+import com.API.API_limiter.model.UserEntity;
+import com.API.API_limiter.repository.UserRepository;
+import com.API.API_limiter.service.RateLimiterService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.HashMap;
-import java.util.Map;
-
 @RestController
 @RequestMapping("/api/admin")
 public class DashboardController {
 
-    @Autowired
-    private StringRedisTemplate redisTemplate;
+    private final RateLimiterService rateLimiterService;
+    private final UserRepository userRepository;
 
-    @Autowired
-    private com.API.API_limiter.repository.UserRepository userRepository;
+    public DashboardController(RateLimiterService rateLimiterService, UserRepository userRepository) {
+        this.rateLimiterService = rateLimiterService;
+        this.userRepository = userRepository;
+    }
 
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getDashboardStats(java.security.Principal principal) {
+    public ResponseEntity<DashboardStatsResponse> getDashboardStats(java.security.Principal principal) {
         String username = principal.getName();
-        var user = userRepository.findByUsername(username).orElseThrow();
+        UserEntity user = userRepository.findByUsername(username).orElseThrow();
+        UserEntity.PlanType plan = user.getPlan();
+        RateLimiterService.RateLimitSnapshot snapshot = rateLimiterService.getSnapshot(user.getApiKey(), plan);
 
-        Map<String, Object> stats = new HashMap<>();
-        stats.put("username", user.getUsername());
-        stats.put("plan", user.getPlan());
-        stats.put("api_key", user.getApiKey());
+        return ResponseEntity.ok(new DashboardStatsResponse(
+                user.getUsername(),
+                plan.name(),
+                user.getApiKey(),
+                snapshot.limit(),
+                snapshot.remaining(),
+                snapshot.refillRate(),
+                "ACTIVE"));
+    }
 
-        String redisKey = user.getApiKey() + ":tokens";
-        String tokensStr = redisTemplate.opsForValue().get(redisKey);
-
-        double limit = (user.getPlan() == com.API.API_limiter.model.UserEntity.PlanType.FREE) ? 10.0 : 50.0;
-        double remaining = tokensStr != null ? Double.parseDouble(tokensStr) : limit;
-
-        stats.put("limit", limit);
-        stats.put("remaining", remaining);
-
-        return ResponseEntity.ok(stats);
+    public record DashboardStatsResponse(
+            String username,
+            String plan,
+            String apiKey,
+            long limit,
+            long remaining,
+            int refillRate,
+            String status) {
     }
 }

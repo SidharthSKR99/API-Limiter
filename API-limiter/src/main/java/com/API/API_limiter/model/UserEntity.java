@@ -24,13 +24,35 @@ public class UserEntity {
     @Column(nullable = false)
     private String password;
 
-    @Column(nullable = false)
+    @Column(unique = true, nullable = false, length = 36)
     private String apiKey;
 
     @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private PlanType plan;
 
     public enum PlanType {
-        FREE, GOLD
+        FREE(10, 1),
+        GOLD(50, 5);
+
+        private final int limit;
+        private final int refillRate;
+
+        PlanType(int limit, int refillRate) {
+            this.limit = limit;
+            this.refillRate = refillRate;
+        }
+
+        public int getLimit() {
+            return limit;
+        }
+
+        public int getRefillRate() {
+            return refillRate;
+        }
+
+        public static PlanType from(String rawPlan) {
+            return PlanType.valueOf(rawPlan.trim().toUpperCase());
+        }
     }
 }

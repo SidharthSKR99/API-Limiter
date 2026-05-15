@@ -15,7 +15,7 @@ public class WeatherController {
     public ResponseEntity<Map<String, String>> getCurrentWeather() {
         return ResponseEntity.ok(Map.of(
                 "location", "Kochi, India",
-                "temperature", "30°C",
+                "temperature", "30 C",
                 "condition", "Monsoon Rain",
                 "humidity", "85%"));
     }
@@ -24,6 +24,6 @@ public class WeatherController {
     public ResponseEntity<Map<String, String>> getForecast() {
         return ResponseEntity.ok(Map.of(
                 "tomorrow", "Rainy",
-                "day_after", "Cloudy"));
+                "dayAfter", "Cloudy"));
     }
 }

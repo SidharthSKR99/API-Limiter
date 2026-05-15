@@ -1,40 +1,72 @@
-version: '3.8'
-
 services:
-  # 1. The Database
-  redis:
-    image: redis:latest
-    container_name: redis-rate-limiter
+  postgres:
+    image: postgres:16-alpine
+    container_name: api-limiter-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-api_limiter}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "6379:6379"
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-api_limiter}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     networks:
       - api-network
 
-  # 2. Your Java Backend
+  redis:
+    image: redis:7-alpine
+    container_name: redis-rate-limiter
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - api-network
+
   app:
     build: .
     container_name: api-limiter-app
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
     environment:
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-api_limiter}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET:-replace-me-with-a-very-long-local-development-secret-12345}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-36000000}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000,http://localhost:5173}
     depends_on:
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - api-network
 
-  # 3. React Frontend
   frontend:
     build: ../frontend
     container_name: api-limiter-frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
-      - app
+      app:
+        condition: service_started
     networks:
       - api-network
 
 networks:
   api-network:
     driver: bridge
+
+volumes:
+  postgres-data:

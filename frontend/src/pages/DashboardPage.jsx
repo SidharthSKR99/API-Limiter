@@ -1,13 +1,103 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useRef } from 'react';
+import api from '../api';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { Shield, Activity, Zap, Server, LogOut, Key } from 'lucide-react';
+import { Shield, Activity, Zap, Server, LogOut, Key, Send, FlaskConical } from 'lucide-react';
 
 function DashboardPage() {
     const [stats, setStats] = useState(null);
     const [history, setHistory] = useState([]);
+    const [requestLog, setRequestLog] = useState([]);
+    const [isSending, setIsSending] = useState(false);
+    const [isStressing, setIsStressing] = useState(false);
+    const [stressResult, setStressResult] = useState(null);
+    const logEndRef = useRef(null);
     const navigate = useNavigate();
+
+    // Auto-scroll request log to bottom
+    useEffect(() => {
+        logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [requestLog]);
+
+    const addLogEntry = (status, remaining, text) => {
+        setRequestLog(prev => {
+            const newLog = [...prev, {
+                time: new Date().toLocaleTimeString(),
+                status,
+                remaining,
+                text,
+            }];
+            if (newLog.length > 50) newLog.shift();
+            return newLog;
+        });
+    };
+
+    const sendTestRequest = async () => {
+        if (isSending || isStressing) return;
+        setIsSending(true);
+        try {
+            const response = await api.get('/weather/current', {
+                headers: { 'X-API-KEY': stats.apiKey }
+            });
+            const remaining = response.headers['x-ratelimit-remaining'] ?? '?';
+            addLogEntry(response.status, remaining, 'OK — Weather data returned');
+        } catch (error) {
+            const status = error.response?.status || 0;
+            const remaining = error.response?.headers?.['x-ratelimit-remaining'] ?? '?';
+            if (status === 429) {
+                addLogEntry(429, remaining, 'Rate limit exceeded!');
+            } else {
+                addLogEntry(status, remaining, error.response?.data?.error || 'Request failed');
+            }
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const runStressTest = async () => {
+        if (isSending || isStressing) return;
+        setIsStressing(true);
+        setStressResult(null);
+        const maxRequests = stats.plan === 'GOLD' ? 55 : 12;
+        let succeeded = 0;
+
+        for (let i = 0; i < maxRequests; i++) {
+            try {
+                const response = await api.get('/weather/current', {
+                    headers: { 'X-API-KEY': stats.apiKey }
+                });
+                const remaining = response.headers['x-ratelimit-remaining'] ?? '?';
+                succeeded++;
+                addLogEntry(response.status, remaining, `Stress #${i + 1} — OK`);
+            } catch (error) {
+                const status = error.response?.status || 0;
+                const remaining = error.response?.headers?.['x-ratelimit-remaining'] ?? '?';
+                if (status === 429) {
+                    addLogEntry(429, remaining, `Stress #${i + 1} — BLOCKED`);
+                    setStressResult({ succeeded, blocked: i + 1 });
+                    break;
+                } else {
+                    addLogEntry(status, remaining, `Stress #${i + 1} — Error`);
+                }
+            }
+        }
+        if (!stressResult) {
+            setStressResult({ succeeded, blocked: null });
+        }
+        setIsStressing(false);
+    };
+
+    const getStatusColor = (status) => {
+        if (status === 200) return 'text-green-400';
+        if (status === 429) return 'text-red-400';
+        return 'text-yellow-400';
+    };
+
+    const getStatusBg = (status) => {
+        if (status === 200) return 'bg-green-500/10 border-green-500/30';
+        if (status === 429) return 'bg-red-500/10 border-red-500/30';
+        return 'bg-yellow-500/10 border-yellow-500/30';
+    };
 
     useEffect(() => {
         const token = localStorage.getItem('token');
@@ -18,7 +108,7 @@ function DashboardPage() {
 
         const fetchData = async () => {
             try {
-                const response = await axios.get('http://localhost:8080/api/admin/stats', {
+                const response = await api.get('/admin/stats', {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 const data = response.data;
@@ -85,7 +175,7 @@ function DashboardPage() {
                         <Key className="text-blue-400" />
                         <span className="font-mono text-slate-300">Your API Key:</span>
                         <code className="bg-slate-950 px-3 py-1 rounded text-blue-300 font-mono select-all">
-                            {stats.api_key}
+                            {stats.apiKey}
                         </code>
                     </div>
                     <div className="text-xs text-slate-500 uppercase tracking-widest font-semibold">
@@ -141,6 +231,65 @@ function DashboardPage() {
                         </div>
                     </div>
 
+                </div>
+
+                {/* Test API Panel */}
+                <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg mb-8">
+                    <div className="flex items-center justify-between mb-5">
+                        <div className="flex items-center gap-2">
+                            <FlaskConical className="text-purple-400" />
+                            <h2 className="text-xl font-semibold">Test API</h2>
+                        </div>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={sendTestRequest}
+                                disabled={isSending || isStressing}
+                                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
+                            >
+                                <Send className="w-4 h-4" />
+                                {isSending ? 'Sending...' : 'Send Request'}
+                            </button>
+                            <button
+                                onClick={runStressTest}
+                                disabled={isSending || isStressing}
+                                className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg transition-colors text-sm font-medium"
+                            >
+                                <Zap className="w-4 h-4" />
+                                {isStressing ? 'Running...' : 'Stress Test'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Stress Test Result Banner */}
+                    {stressResult && (
+                        <div className={`p-3 rounded-lg mb-4 text-sm font-medium border ${stressResult.blocked ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-green-500/10 border-green-500/30 text-green-300'}`}>
+                            {stressResult.blocked
+                                ? `🛑 Rate limited! ${stressResult.succeeded} requests succeeded before being blocked on request #${stressResult.blocked}.`
+                                : `✅ All ${stressResult.succeeded} requests succeeded (limit not reached).`
+                            }
+                        </div>
+                    )}
+
+                    {/* Request History Log */}
+                    <div className="bg-slate-900 rounded-lg border border-slate-700 max-h-48 overflow-y-auto">
+                        {requestLog.length === 0 ? (
+                            <div className="p-4 text-center text-slate-500 text-sm">
+                                No requests sent yet. Click <span className="text-blue-400">Send Request</span> or <span className="text-purple-400">Stress Test</span> to begin.
+                            </div>
+                        ) : (
+                            <div className="divide-y divide-slate-800">
+                                {requestLog.map((entry, i) => (
+                                    <div key={i} className={`flex items-center gap-3 px-4 py-2 text-sm border-l-2 ${getStatusBg(entry.status)}`}>
+                                        <span className="text-slate-500 font-mono text-xs w-20 shrink-0">{entry.time}</span>
+                                        <span className={`font-bold font-mono w-10 shrink-0 ${getStatusColor(entry.status)}`}>{entry.status}</span>
+                                        <span className="text-slate-400 truncate flex-1">{entry.text}</span>
+                                        <span className="text-slate-500 text-xs font-mono shrink-0">rem: {entry.remaining}</span>
+                                    </div>
+                                ))}
+                                <div ref={logEndRef} />
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* Real-time Chart */}
